@@ -2,6 +2,11 @@ name: Render Video
 
 on:
   workflow_dispatch:
+    inputs:
+      composition:
+        description: "ID komposisi. Bisa satu (Motivasi), beberapa dipisah spasi (Motivasi HelloWorld), atau ALL untuk semuanya"
+        required: true
+        default: "ALL"
 
 jobs:
   render:
@@ -13,12 +18,24 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm ci
+      - run: npm install
 
       - name: Render
-        run: npx remotion render src/index.ts HelloWorld out/HelloWorld.mp4
+        env:
+          INPUT: ${{ github.event.inputs.composition }}
+        run: |
+          mkdir -p out
+          if [ "$INPUT" = "ALL" ]; then
+            IDS=$(npx remotion compositions src/index.ts --quiet)
+          else
+            IDS="$INPUT"
+          fi
+          echo "Akan dirender: $IDS"
+          for id in $IDS; do
+            npx remotion render src/index.ts "$id" "out/$id.mp4"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: video
-          path: out/HelloWorld.mp4
+          name: videos
+          path: out/*.mp4
