@@ -1,41 +1,28 @@
 name: Render Video
-
 on:
   workflow_dispatch:
     inputs:
-      composition:
-        description: "ID komposisi. Bisa satu (Motivasi), beberapa dipisah spasi (Motivasi HelloWorld), atau ALL untuk semuanya"
+      video:
+        description: "Nama folder video di public/ (contoh: video2)"
         required: true
-        default: "ALL"
-
+        default: "video1"
 jobs:
   render:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - run: npm install
-
       - name: Render
         env:
-          INPUT: ${{ github.event.inputs.composition }}
+          VIDEO: ${{ github.event.inputs.video }}
         run: |
           mkdir -p out
-          if [ "$INPUT" = "ALL" ]; then
-            IDS=$(npx remotion compositions src/index.ts --quiet)
-          else
-            IDS="$INPUT"
-          fi
-          echo "Akan dirender: $IDS"
-          for id in $IDS; do
-            npx remotion render src/index.ts "$id" "out/$id.mp4"
-          done
-
+          echo "{\"name\":\"$VIDEO\"}" > props.json
+          npx remotion render src/index.ts Cerita "out/$VIDEO.mp4" --props=props.json
       - uses: actions/upload-artifact@v4
         with:
-          name: videos
+          name: ${{ github.event.inputs.video }}
           path: out/*.mp4
