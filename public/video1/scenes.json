@@ -1,0 +1,179 @@
+{
+  "durationInFrames": 1185,
+  "watermark": "",
+  "music": false,
+  "scenes": [
+    {
+      "title": "Hmm, pernah nggak sih kamu ngerasa kalau semua orang tuh kayaknya udah *jauh* di *depan*?",
+      "start": 0,
+      "accent": "#FFA500",
+      "bg": "dawn",
+      "chars": [
+        {
+          "x": 500,
+          "pose": "sad",
+          "type": "girl"
+        }
+      ],
+      "prop": "shadow"
+    },
+    {
+      "title": "Aku *paham* kok *rasanya*.",
+      "start": 3,
+      "accent": "#FFD700",
+      "bg": "dusk",
+      "chars": [
+        {
+          "x": 500,
+          "pose": "idle",
+          "type": "girl"
+        }
+      ]
+    },
+    {
+      "title": "Apalagi pas tangan sampai *gemetar* waktu mau *posting* karya pertama.",
+      "start": 6,
+      "accent": "#FF4500",
+      "bg": "room",
+      "chars": [
+        {
+          "x": 500,
+          "pose": "tremble",
+          "type": "girl"
+        }
+      ],
+      "prop": "phone"
+    },
+    {
+      "title": "*Padahal* ya, mereka yang sekarang udah *hebat* pun...",
+      "start": 10,
+      "accent": "#1E90FF",
+      "bg": "stage",
+      "chars": [
+        {
+          "x": 500,
+          "pose": "point",
+          "type": "boss"
+        }
+      ],
+      "prop": "crowd"
+    },
+    {
+      "title": "...pasti *pernah* loh ada di titik *bimbang* yang sama.",
+      "start": 13,
+      "accent": "#9370DB",
+      "bg": "night",
+      "chars": [
+        {
+          "x": 500,
+          "pose": "think",
+          "type": "boss"
+        }
+      ],
+      "prop": "orb"
+    },
+    {
+      "title": "Nah, *jangan* sampai deh rasa *takut* itu malah ngubur potensi kamu...",
+      "start": 17,
+      "accent": "#FF6347",
+      "bg": "dusk",
+      "chars": [],
+      "card": {
+        "type": "list",
+        "value": "title: Bahaya Takut, items: [Menghambat aksi, Menghapus mimpi, Statis di tempat]"
+      }
+    },
+    {
+      "title": "...sebelum *dunia* sempat *lihat*.",
+      "start": 20,
+      "accent": "#00FF7F",
+      "bg": "day",
+      "chars": [
+        {
+          "x": 500,
+          "pose": "wave",
+          "type": "girl"
+        }
+      ],
+      "prop": "bulb"
+    },
+    {
+      "title": "Jadi gini, *berani* itu bukan berarti kita nggak *takut*...",
+      "start": 24,
+      "accent": "#FF8C00",
+      "bg": "office",
+      "chars": [],
+      "card": {
+        "type": "stat",
+        "value": "100%|Mentalitas Berani"
+      }
+    },
+    {
+      "title": "...tapi gimana kita tetap mau *melangkah*...",
+      "start": 26,
+      "accent": "#ADFF2F",
+      "bg": "day",
+      "chars": [
+        {
+          "x": 200,
+          "pose": "walk",
+          "type": "girl",
+          "walkTo": 600
+        }
+      ]
+    },
+    {
+      "title": "...walaupun *hati* masih agak *ragu*.",
+      "start": 29,
+      "accent": "#FF69B4",
+      "bg": "dusk",
+      "chars": [
+        {
+          "x": 600,
+          "pose": "idle",
+          "type": "girl"
+        }
+      ],
+      "prop": "think"
+    },
+    {
+      "title": "Oh ya, coba deh *bagiin* ke *aku*...",
+      "start": 32,
+      "accent": "#00CED1",
+      "bg": "room",
+      "chars": [
+        {
+          "x": 500,
+          "pose": "point",
+          "type": "girl"
+        }
+      ],
+      "prop": "phone"
+    },
+    {
+      "title": "apa sih satu *kata* yang bisa bikin kamu *kuat*...",
+      "start": 35,
+      "accent": "#FFFF00",
+      "bg": "day",
+      "chars": [],
+      "card": {
+        "type": "list",
+        "value": "title: Kata Penguat, items: [Bisa!, Hantam!, Pelan tapi Pasti, Jangan Menyerah]"
+      }
+    },
+    {
+      "title": "...dan *semangat* hari *ini*?",
+      "start": 37,
+      "accent": "#FF1493",
+      "bg": "stage",
+      "chars": [
+        {
+          "x": 500,
+          "pose": "cheer",
+          "type": "girl"
+        }
+      ],
+      "prop": "confetti"
+    }
+  ]
+}
