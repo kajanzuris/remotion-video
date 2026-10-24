@@ -1,65 +1,28 @@
-import { Composition, Folder } from "remotion";
-import { HelloWorld } from "./HelloWorld";
-import { Logo } from "./HelloWorld/Logo";
-import { Title } from "./HelloWorld/Title";
-   import { MotivasiVideo } from "./MotivasiVideo";
+import { CalculateMetadataFunction, Composition, staticFile } from "remotion";
+import { StoryProps, VectorStory, VideoData } from "./VectorStory";
 
-// Each <Composition> is an entry in the sidebar!
+const calc: CalculateMetadataFunction<StoryProps> = async ({ props }) => {
+  const res = await fetch(staticFile(`${props.name}/scenes.json`));
+  if (!res.ok) throw new Error(`public/${props.name}/scenes.json tidak ditemukan`);
+  const data = (await res.json()) as VideoData;
+  return {
+    durationInFrames: Math.max(1, Math.round(data.durationInFrames)),
+    props: { ...props, data },
+  };
+};
 
+// Cukup dipasang SEKALI. Video baru = folder baru di public/<nama>/, tanpa mengubah file ini.
 export const RemotionRoot: React.FC = () => {
   return (
-    <>
-      <Folder name="Elements">
-        <Composition
-          id="Logo"
-          component={Logo}
-          durationInFrames={150}
-          fps={30}
-          width={1920}
-          height={1080}
-          defaultProps={{
-            logoColor1: "#91EAE4",
-            logoColor2: "#86A8E7",
-          }}
-        />
-        <Composition
-          id="Title"
-          component={Title}
-          durationInFrames={115}
-          fps={30}
-          width={1920}
-          height={1080}
-          defaultProps={{
-            titleText: "Welcome to Remotion",
-            titleColor: "#000000",
-          }}
-        />
-      </Folder>
-         <Composition
-     id="Motivasi"
-     component={MotivasiVideo}
-     durationInFrames={900}
-     fps={30}
-     width={1080}
-     height={1920}
-   />
-      <Composition
-        // You can take the "id" to render a video:
-        // bunx remotion render HelloWorld
-        id="HelloWorld"
-        component={HelloWorld}
-        durationInFrames={150}
-        fps={30}
-        width={1920}
-        height={1080}
-        // You can override these props for each render:
-        // https://www.remotion.dev/docs/parametrized-rendering
-        defaultProps={{
-          titleText: "Welcome to Remotion",
-          titleColor: "#000000",
-        }}
-      />
-
-    </>
+    <Composition
+      id="Cerita"
+      component={VectorStory}
+      durationInFrames={30}
+      fps={30}
+      width={1080}
+      height={1920}
+      defaultProps={{ name: "video1" } as StoryProps}
+      calculateMetadata={calc}
+    />
   );
 };
