@@ -141,7 +141,7 @@ fg = (f'[0:a]apad=whole_dur={DUR},asplit=2[vo][sc];[1:a]volume=0.65[bed];[bed][s
       f'[d0]asplit=2[duck][dchk];[2:a]volume=0.5[fx];[vo][duck][fx]amix=inputs=3:duration=longest[o]')
 subprocess.run([FF, '-y', '-loglevel', 'error', '-i', 'tmp/vo.wav', '-i', 'tmp/bed.wav', '-i', 'tmp/sfx.wav', '-filter_complex', fg,
                 '-map', '[o]', '-t', str(DUR), '-ar', '44100', 'tmp/raw_mix.wav', '-map', '[dchk]', '-t', str(DUR), 'tmp/duck_only.wav'], check=True)
-subprocess.run([FF, '-y', '-loglevel', 'error', '-i', 'tmp/raw_mix.wav', '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11', '-ar', '44100', f'{D}/mix.wav'], check=True)
+subprocess.run([FF, '-y', '-loglevel', 'error', '-i', 'tmp/raw_mix.wav', '-af', 'loudnorm=I=-14:TP=-2.5:LRA=11', '-ar', '44100', f'{D}/mix.wav'], check=True)
 
 # ---------- 6. cek angka (kita tidak "mendengar", jadi ukur)
 if os.path.exists(mp3):
