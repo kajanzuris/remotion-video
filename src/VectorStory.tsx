@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import {
   AbsoluteFill,
   Audio,
+  Easing,
   Sequence,
   interpolate,
   spring,
@@ -10,16 +12,33 @@ import {
 } from "remotion";
 
 const FPS = 30;
-const XF = 10;
+const XF = 10; // frame overlap transisi antar adegan
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
 type Pose = "idle" | "point" | "shock" | "sad" | "cheer" | "wave" | "walk" | "tremble" | "think";
 type Card = { type: "list" | "stat" | "bars" | "tool"; title?: string; items?: string[]; value?: string; label?: string; name?: string; tagline?: string; cta?: string };
 type Char = { type?: string; x: number; pose: Pose; enter?: "left" | "right"; s?: number; color?: string; flip?: boolean; walkTo?: number };
 type Scn = { title: string; start: number; accent: string; bg: string; chars: Char[]; prop?: string; card?: Card };
+// waktu kata (detik) hasil tools/prepare.py; s = indeks adegan
+type Word = { w: string; hl: boolean; a: number; b: number; s: number };
 
-export type VideoData = { durationInFrames: number; watermark?: string; music?: boolean; scenes: Scn[] };
+export type VideoData = { durationInFrames: number; watermark?: string; music?: boolean; cta?: string; words?: Word[]; env?: number[]; scenes: Scn[] };
 export type StoryProps = { name: string; data?: VideoData };
+
+// Kartu lama menyimpan semua isi di satu string `value` → ubah ke field terstruktur (aman untuk data lama maupun baru)
+const normCard = (c: Card): Card => {
+  if (c.items || c.label || !c.value) return c;
+  if (c.type === "list") {
+    const title = c.value.match(/title:\s*([^,]+)/i)?.[1]?.trim();
+    const items = c.value.match(/items:\s*\[(.*)\]/i)?.[1]?.split(",").map((x) => x.trim());
+    return { ...c, title: c.title ?? title, items };
+  }
+  if (c.type === "stat" && c.value.includes("|")) {
+    const [v, l] = c.value.split("|");
+    return { ...c, value: v, label: l };
+  }
+  return c;
+};
 
 const Limb: React.FC<{ x1: number; y1: number; x2: number; y2: number; c: string }> = ({ x1, y1, x2, y2, c }) => (
   <g strokeLinecap="round">
@@ -28,9 +47,11 @@ const Limb: React.FC<{ x1: number; y1: number; x2: number; y2: number; c: string
   </g>
 );
 
-const Stick: React.FC<{ pose: Pose; color: string; f: number; type?: string }> = ({ pose, color, f, type }) => {
+// talk (0..1) = kerasnya suara pada frame ini → mulut ikut membuka (lip-sync sederhana)
+const Stick: React.FC<{ pose: Pose; color: string; f: number; type?: string; talk?: number }> = ({ pose, color, f, type, talk }) => {
   const rad = (d: number) => (d * Math.PI) / 180;
-  const breathe = Math.sin(f / 9) * 3;
+  const talking = talk !== undefined && talk > 0.07;
+  const breathe = Math.sin(f / 9) * 3 - (talking ? (talk as number) * 3 : 0);
   const blink = f % 90 < 4;
   let aL = 14, aR = -14, legs = 0, tilt = 0, mouth = "smile";
   if (pose === "point") { aR = -95; mouth = "open"; }
@@ -41,6 +62,7 @@ const Stick: React.FC<{ pose: Pose; color: string; f: number; type?: string }> =
   else if (pose === "walk") { legs = Math.sin(f / 4) * 28; aL = Math.sin(f / 4) * 25; aR = -Math.sin(f / 4) * 25; }
   else if (pose === "tremble") { aL = 40; aR = -40; mouth = "o"; }
   else if (pose === "think") { aR = -120; mouth = "sad"; tilt = -6; }
+  if (talk !== undefined) mouth = talking ? "talk" : pose === "sad" || pose === "think" ? "sad" : "smile";
   const shake = pose === "tremble" ? Math.sin(f * 2.2) * 5 : 0;
   const bob = pose === "walk" ? Math.abs(Math.sin(f / 4)) * -10 : 0;
   const arm = (side: number, a: number) => (
@@ -74,6 +96,7 @@ const Stick: React.FC<{ pose: Pose; color: string; f: number; type?: string }> =
         {mouth === "smile" && <path d={`M-24 ${-390 + breathe} Q0 ${-366 + breathe} 24 ${-390 + breathe}`} stroke="#111" strokeWidth={5} fill="none" />}
         {mouth === "sad" && <path d={`M-22 ${-372 + breathe} Q0 ${-394 + breathe} 22 ${-372 + breathe}`} stroke="#111" strokeWidth={5} fill="none" />}
         {mouth === "open" && <ellipse cx={0} cy={-382 + breathe} rx={15} ry={(10 + Math.abs(Math.sin(f / 3)) * 10)} fill="#111" />}
+        {mouth === "talk" && <ellipse cx={0} cy={-382 + breathe} rx={13 + (talk as number) * 9} ry={4 + (talk as number) * 24} fill="#111" />}
         {mouth === "o" && <circle cx={0} cy={-380 + breathe} r={13} fill="#111" />}
         {pose === "sad" && <circle cx={30} cy={-405 + breathe + (f % 40)} r={6} fill="#6ec6ff" opacity={1 - (f % 40) / 40} />}
       </g>
@@ -217,63 +240,101 @@ const Prop: React.FC<{ kind: string; f: number; hx: number; accent: string }> = 
   );
 };
 
-const CardView: React.FC<{ c: Card; f: number; accent: string }> = ({ c, f, accent }) => {
+// Kartu info di atas panel gelap supaya terbaca di latar terang maupun gelap
+const CardView: React.FC<{ c: Card; f: number; accent: string }> = ({ c: raw, f, accent }) => {
   const { fps } = useVideoConfig();
+  const c = normCard(raw);
   const pop = (d: number) => spring({ frame: f - d, fps, config: { damping: 13 } });
   const items = c.items || [];
   const m = (c.value || "").match(/[\d.,]+/);
   const num = m ? parseFloat(m[0].replace(",", ".")) : NaN;
   const shown = m && !isNaN(num) ? (c.value || "").replace(m[0], String(Math.round(num * Math.min(1, f / 40)))) : c.value;
-  const box: React.CSSProperties = { fontFamily: "Arial, sans-serif", color: "#fff", textShadow: "0 3px 16px rgba(0,0,0,0.6)" };
+  const box: React.CSSProperties = { fontFamily: "Arial, sans-serif", color: "#fff" };
+  const panel: React.CSSProperties = { width: 920, padding: "44px 40px", borderRadius: 48, background: "rgba(14,18,38,0.86)", border: `5px solid ${accent}`, display: "flex", flexDirection: "column", alignItems: "center", transform: `scale(${0.85 + 0.15 * Math.min(1, pop(0))})`, opacity: Math.min(1, pop(0) * 2) };
   return (
-    <AbsoluteFill style={{ alignItems: "center", paddingTop: 640, ...box }}>
-      {c.title ? <div style={{ fontSize: 54, fontWeight: 800, opacity: pop(2), marginBottom: 30, textAlign: "center", width: 900 }}>{c.title}</div> : null}
-      {c.type === "list" && items.map((it, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 24, width: 880, margin: "10px 0", opacity: pop(10 + i * 10), transform: `translateX(${(1 - pop(10 + i * 10)) * -140}px)` }}>
-          <div style={{ width: 72, height: 72, borderRadius: 36, background: accent, color: "#111", fontSize: 42, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</div>
-          <div style={{ fontSize: 50, fontWeight: 700 }}>{it}</div>
+    <AbsoluteFill style={{ alignItems: "center", paddingTop: 700, ...box }}>
+      {c.type !== "tool" && (
+        <div style={panel}>
+          {c.title ? <div style={{ fontSize: 58, fontWeight: 900, color: accent, opacity: pop(2), marginBottom: 26, textAlign: "center" }}>{c.title}</div> : null}
+          {c.type === "list" && items.map((it, i) => {
+            const k = Math.min(1, pop(10 + i * 10));
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 24, width: 820, margin: "12px 0", opacity: k, transform: `translateX(${(1 - k) * -140}px)` }}>
+                <div style={{ width: 72, height: 72, borderRadius: 36, background: accent, color: "#111", fontSize: 42, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</div>
+                <div style={{ fontSize: 52, fontWeight: 700 }}>{it}</div>
+              </div>
+            );
+          })}
+          {c.type === "stat" && (
+            <>
+              <div style={{ fontSize: 200, fontWeight: 900, color: accent, transform: `scale(${0.6 + 0.4 * Math.min(1.1, pop(4))})` }}>{shown}</div>
+              <div style={{ fontSize: 56, fontWeight: 700, textAlign: "center", width: 800, opacity: pop(14) }}>{c.label}</div>
+            </>
+          )}
+          {c.type === "bars" && items.map((it, i) => {
+            const [lb, v] = it.split("|");
+            const w = Math.min(100, Math.max(5, parseFloat(v) || 50)) * 7.6 * Math.min(1, pop(8 + i * 8));
+            return (
+              <div key={i} style={{ width: 820, margin: "12px 0" }}>
+                <div style={{ fontSize: 42, fontWeight: 700, marginBottom: 6 }}>{lb}</div>
+                <div style={{ height: 48, width: w, borderRadius: 24, background: accent }} />
+              </div>
+            );
+          })}
         </div>
-      ))}
-      {c.type === "stat" && (
-        <>
-          <div style={{ fontSize: 210, fontWeight: 900, color: accent, transform: `scale(${0.6 + 0.4 * pop(4)})` }}>{shown}</div>
-          <div style={{ fontSize: 52, textAlign: "center", width: 840, opacity: pop(14) }}>{c.label}</div>
-        </>
       )}
-      {c.type === "bars" && items.map((it, i) => {
-        const [lb, v] = it.split("|");
-        const w = Math.min(100, Math.max(5, parseFloat(v) || 50)) * 6.4 * Math.min(1, pop(8 + i * 8));
-        return (
-          <div key={i} style={{ width: 880, margin: "12px 0" }}>
-            <div style={{ fontSize: 40, fontWeight: 700, marginBottom: 6 }}>{lb}</div>
-            <div style={{ height: 48, width: w, borderRadius: 24, background: accent }} />
-          </div>
-        );
-      })}
       {c.type === "tool" && (
-        <div style={{ width: 860, padding: 40, borderRadius: 44, background: "rgba(16,20,40,0.92)", border: `4px solid ${accent}`, transform: `scale(${0.8 + 0.2 * pop(2)})`, opacity: pop(2) }}>
+        <div style={{ width: 860, padding: 40, borderRadius: 44, background: "rgba(16,20,40,0.92)", border: `4px solid ${accent}`, transform: `scale(${0.8 + 0.2 * Math.min(1, pop(2))})`, opacity: Math.min(1, pop(2)) }}>
           <div style={{ fontSize: 66, fontWeight: 900, color: accent }}>{c.name}</div>
           <div style={{ fontSize: 40, margin: "10px 0 24px", opacity: 0.9 }}>{c.tagline}</div>
           {items.map((it, i) => (
-            <div key={i} style={{ fontSize: 40, margin: "10px 0", opacity: pop(12 + i * 8) }}>✓ {it}</div>
+            <div key={i} style={{ fontSize: 40, margin: "10px 0", opacity: Math.min(1, pop(12 + i * 8)) }}>✓ {it}</div>
           ))}
-          <div style={{ marginTop: 28, display: "inline-block", padding: "16px 40px", borderRadius: 40, background: accent, color: "#111", fontSize: 40, fontWeight: 800, opacity: pop(12 + items.length * 8) }}>{c.cta || "Coba sekarang"}</div>
+          <div style={{ marginTop: 28, display: "inline-block", padding: "16px 40px", borderRadius: 40, background: accent, color: "#111", fontSize: 40, fontWeight: 800, opacity: Math.min(1, pop(12 + items.length * 8)) }}>{c.cta || "Coba sekarang"}</div>
         </div>
       )}
     </AbsoluteFill>
   );
 };
 
-const SceneView: React.FC<{ s: Scn; first: boolean; len: number }> = ({ s, first, len }) => {
+// Kamera berbeda tiap adegan: push-in, close-up ke karakter, pan, pull-out, tilt
+const CAMS = [
+  { s: [1.0, 1.1], x: [0, -20], y: [0, 0], close: false },
+  { s: [1.0, 1.4], x: [0, 0], y: [0, 0], close: true },
+  { s: [1.12, 1.12], x: [50, -50], y: [0, 0], close: false },
+  { s: [1.35, 1.0], x: [0, 0], y: [0, 0], close: true },
+  { s: [1.12, 1.12], x: [-50, 50], y: [0, 0], close: false },
+  { s: [1.0, 1.12], x: [0, 0], y: [40, -30], close: false },
+];
+
+const SceneView: React.FC<{ s: Scn; idx: number; first: boolean; len: number; from: number; env?: number[] }> = ({ s, idx, first, len, from, env }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const t = first ? 1 : interpolate(f, [0, XF], [0, 1], clamp);
-  const p = f / len;
+  const te = first ? 1 : Easing.out(Easing.cubic)(interpolate(f, [0, XF], [0, 1], clamp));
+  const p = Easing.inOut(Easing.cubic)(interpolate(f, [0, len], [0, 1], clamp));
   const hero = s.chars[0] || { x: 540 };
+  const cam = s.chars.length ? CAMS[idx % CAMS.length] : CAMS[0];
+  const lerp = (a: number[]) => a[0] + (a[1] - a[0]) * p;
+  const impact = s.card?.type === "stat" || s.prop === "confetti" || s.prop === "bulb";
+  const sf = f - XF;
+  const sh = impact && sf >= 0 && sf < 12 ? Math.sin(sf * 2.6) * ((12 - sf) / 12) * 14 : 0;
+  const kind = first ? -1 : idx % 4;
+  const outer: React.CSSProperties =
+    kind === 0 ? { transform: `translateX(${(1 - te) * 1080}px)` }
+    : kind === 1 ? { transform: `translateX(${-(1 - te) * 1080}px)` }
+    : kind === 2 ? { transform: `translateY(${(1 - te) * 1920}px)` }
+    : kind === 3 ? { clipPath: `circle(${te * 150}% at 50% 62%)` }
+    : {};
+  const talk = env ? env[Math.min(env.length - 1, from + f)] : undefined;
   return (
-    <AbsoluteFill style={{ transform: `translateX(${(1 - t) * 1080}px)` }}>
-      <AbsoluteFill style={{ transform: `scale(${1 + p * 0.07})` }}>
+    <AbsoluteFill style={outer}>
+      <AbsoluteFill style={{ transformOrigin: cam.close ? `${hero.x}px 1050px` : "50% 55%", transform: `translate(${lerp(cam.x) + sh}px, ${lerp(cam.y) + sh * 0.6}px) scale(${lerp(cam.s)})` }}>
         <Bg type={s.bg} f={f} p={p} />
+        {s.chars.length > 0 && (
+          <svg viewBox="0 0 1080 1920" width={1080} height={1920} style={{ position: "absolute" }}>
+            <circle cx={hero.x} cy={1130} r={340} fill={s.accent} opacity={0.16} />
+          </svg>
+        )}
         {s.prop ? <Prop kind={s.prop} f={f} hx={hero.x} accent={s.accent} /> : null}
         {s.card ? <CardView c={s.card} f={f} accent={s.accent} /> : null}
         <svg viewBox="0 0 1080 1920" width={1080} height={1920} style={{ position: "absolute" }}>
@@ -285,76 +346,87 @@ const SceneView: React.FC<{ s: Scn; first: boolean; len: number }> = ({ s, first
             return (
               <g key={i} transform={`translate(${x},1500) scale(${c.flip ? -sc : sc},${sc})`}>
                 <ellipse cx={0} cy={4} rx={90} ry={14} fill="#000" opacity={0.35} />
-                <Stick pose={c.pose} color={c.color ?? "#4cc9f0"} f={f + i * 7} type={c.type} />
+                <Stick pose={c.pose} color={c.color ?? "#4cc9f0"} f={f + i * 7} type={c.type} talk={i === 0 ? talk : undefined} />
               </g>
             );
           })}
         </svg>
       </AbsoluteFill>
-      <AbsoluteFill style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%)" }} />
     </AbsoluteFill>
   );
 };
 
-const Captions: React.FC<{ total: number; scenes: Scn[] }> = ({ total, scenes }) => {
+// Caption: grup 3–4 kata di atas panel gelap; kata yang sedang diucapkan menyala dan memantul, kata penting (*...*) berwarna aksen.
+const groupsOf = (words: Word[]) => {
+  const g: Word[][] = [];
+  let cur: Word[] = [];
+  words.forEach((w) => {
+    if (cur.length && (cur.length >= 4 || cur[0].s !== w.s)) { g.push(cur); cur = []; }
+    cur.push(w);
+    if (/[.?!,]$/.test(w.w)) { g.push(cur); cur = []; }
+  });
+  if (cur.length) g.push(cur);
+  return g;
+};
+
+const Captions: React.FC<{ words: Word[]; accents: string[] }> = ({ words, accents }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const words: { w: string; hl: boolean; a: number; b: number; accent: string }[] = [];
-  scenes.forEach((s, si) => {
-    const a = Math.round(s.start * FPS);
-    const b = si < scenes.length - 1 ? Math.round(scenes[si + 1].start * FPS) : total;
-    const toks = s.title.split(/\s+/).filter(Boolean);
-    const wt = toks.map((t) => t.replace(/\*/g, "").length + 2);
-    const sum = wt.reduce((x, y) => x + y, 0) || 1;
-    let acc = a;
-    toks.forEach((t, i) => {
-      const l = ((b - a) * wt[i]) / sum;
-      words.push({ w: t.replace(/\*/g, ""), hl: t.includes("*"), a: acc, b: acc + l, accent: s.accent });
-      acc += l;
-    });
-  });
-  const cur = words.find((x) => f >= x.a && f < x.b);
-  if (!cur) return null;
-  const sp = spring({ frame: f - cur.a, fps, config: { damping: 12, stiffness: 200 } });
+  const groups = useMemo(() => groupsOf(words), [words]);
+  const t = f / FPS;
+  let gi = -1;
+  for (let i = 0; i < groups.length; i++) if (t >= groups[i][0].a - 0.05) gi = i;
+  if (gi < 0) gi = 0;
+  const g = groups[gi];
+  if (!g || t > g[g.length - 1].b + 0.6) return null;
+  const sp = spring({ frame: f - Math.round(g[0].a * FPS), fps, config: { damping: 13, stiffness: 190 } });
+  const accent = accents[g[0].s] || "#FFD166";
   return (
-    <AbsoluteFill style={{ alignItems: "center", paddingTop: 430 }}>
-      <span
-        style={{
-          fontFamily: "Arial, sans-serif",
-          fontWeight: 800,
-          fontSize: cur.hl ? 92 : 68,
-          color: cur.hl ? cur.accent : "white",
-          transform: `scale(${interpolate(sp, [0, 1], [0.7, 1])})`,
-          opacity: Math.min(1, sp * 2),
-          textShadow: "0 4px 22px rgba(0,0,0,0.9)",
-        }}
-      >
-        {cur.w}
-      </span>
+    <AbsoluteFill style={{ alignItems: "center", paddingTop: 300 }}>
+      <div style={{ width: 940, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "4px 22px", padding: "26px 36px", borderRadius: 48, background: "rgba(10,12,24,0.62)", transform: `scale(${0.88 + 0.12 * Math.min(1, sp)})`, opacity: 0.35 + 0.65 * Math.min(1, sp) }}>
+        {g.map((w, i) => {
+          const active = t >= w.a && t < w.b;
+          const spoken = t >= w.b;
+          const k = spring({ frame: f - Math.round(w.a * FPS), fps, config: { damping: 9, stiffness: 240 } });
+          return (
+            <span key={i} style={{ display: "inline-block", fontFamily: "Arial, sans-serif", fontWeight: 800, fontSize: w.hl ? 90 : 74, lineHeight: 1.25, color: w.hl ? accent : "#fff", opacity: spoken || active ? 1 : 0.55, transform: `scale(${active ? 1 + 0.14 * Math.min(1.2, k) : 1})`, textShadow: "0 4px 18px rgba(0,0,0,0.7)" }}>
+              {w.w}
+            </span>
+          );
+        })}
+      </div>
     </AbsoluteFill>
   );
 };
 
 export const VectorStory: React.FC<StoryProps> = ({ name, data }) => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
+  const { durationInFrames, fps } = useVideoConfig();
   if (!data) return null;
-  const { scenes, watermark, music } = data;
+  const { scenes, watermark, cta, words, env } = data;
+  const ctaStart = durationInFrames - Math.round(2.0 * FPS);
+  const cp = spring({ frame: frame - ctaStart, fps, config: { damping: 12, stiffness: 160 } });
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
-      <Audio src={staticFile(name + "/voiceover.mp3")} />
-      {music ? <Audio src={staticFile(name + "/music.mp3")} volume={0.12} loop /> : null}
+      {/* mix.wav = suara + musik (di-duck) + SFX, dibuat oleh tools/prepare.py */}
+      <Audio src={staticFile(name + "/mix.wav")} />
       {scenes.map((s, i) => {
         const a = Math.round(s.start * FPS);
         const b = i < scenes.length - 1 ? Math.round(scenes[i + 1].start * FPS) : durationInFrames;
         const pad = i === 0 ? 0 : XF;
+        const from = Math.max(0, a - pad);
         return (
-          <Sequence key={i} from={Math.max(0, a - pad)} durationInFrames={Math.max(b - a + pad, 1)}>
-            <SceneView s={s} first={i === 0} len={Math.max(b - a + pad, 1)} />
+          <Sequence key={i} from={from} durationInFrames={Math.max(b - a + pad, 1)}>
+            <SceneView s={s} idx={i} first={i === 0} len={Math.max(b - a + pad, 1)} from={from} env={env} />
           </Sequence>
         );
       })}
-      <Captions total={durationInFrames} scenes={scenes} />
+      {words && words.length ? <Captions words={words} accents={scenes.map((s) => s.accent)} /> : null}
+      {cta && frame >= ctaStart ? (
+        <AbsoluteFill style={{ alignItems: "center", justifyContent: "flex-end", paddingBottom: 300 }}>
+          <div style={{ padding: "26px 56px", borderRadius: 60, background: scenes[scenes.length - 1].accent, color: "#111", fontFamily: "Arial, sans-serif", fontWeight: 900, fontSize: 54, textAlign: "center", transform: `scale(${0.7 + 0.3 * Math.min(1.1, cp)})`, opacity: Math.min(1, cp * 2) }}>{cta}</div>
+        </AbsoluteFill>
+      ) : null}
       {watermark ? <div style={{ position: "absolute", left: 60, bottom: 330, color: "rgba(255,255,255,0.45)", fontSize: 34, fontFamily: "Arial, sans-serif" }}>{watermark}</div> : null}
       <div style={{ position: "absolute", bottom: 0, left: 0, height: 8, width: `${(frame / durationInFrames) * 100}%`, backgroundColor: "rgba(255,255,255,0.8)" }} />
     </AbsoluteFill>
