@@ -3,6 +3,7 @@ import {
   AbsoluteFill,
   Audio,
   Easing,
+  Img,
   Sequence,
   interpolate,
   spring,
@@ -17,12 +18,12 @@ const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 
 type Pose = "idle" | "point" | "shock" | "sad" | "cheer" | "wave" | "walk" | "tremble" | "think";
 type Card = { type: "list" | "stat" | "bars" | "tool"; title?: string; items?: string[]; value?: string; label?: string; name?: string; tagline?: string; cta?: string };
-type Char = { type?: string; x: number; pose: Pose; enter?: "left" | "right"; s?: number; color?: string; flip?: boolean; walkTo?: number };
+type Char = { type?: string; x: number; pose: Pose; enter?: "left" | "right"; s?: number; color?: string; flip?: boolean; walkTo?: number; img?: string; talkImg?: string };
 type Scn = { title: string; start: number; accent: string; bg: string; chars: Char[]; prop?: string; card?: Card };
 // waktu kata (detik) hasil tools/prepare.py; s = indeks adegan
 type Word = { w: string; hl: boolean; a: number; b: number; s: number };
 
-export type VideoData = { durationInFrames: number; watermark?: string; music?: boolean; cta?: string; words?: Word[]; env?: number[]; scenes: Scn[] };
+export type VideoData = { durationInFrames: number; watermark?: string; music?: boolean; cta?: string; words?: Word[]; env?: number[]; style?: "stick" | "robot" | "block" | "sprite"; scenes: Scn[] };
 export type StoryProps = { name: string; data?: VideoData };
 
 // Kartu lama menyimpan semua isi di satu string `value` → ubah ke field terstruktur (aman untuk data lama maupun baru)
@@ -103,6 +104,78 @@ const Stick: React.FC<{ pose: Pose; color: string; f: number; type?: string; tal
     </g>
   );
 };
+
+// Karakter BLOK (gaya game, ORISINAL): kepala & badan kotak, lengan/kaki balok. Pose dan lip-sync sama dengan Stick.
+const Block: React.FC<{ pose: Pose; color: string; f: number; type?: string; talk?: number }> = ({ pose, color, f, type, talk }) => {
+  const talking = talk !== undefined && talk > 0.07;
+  const breathe = Math.sin(f / 9) * 3 - (talking ? (talk as number) * 3 : 0);
+  const blink = f % 90 < 4;
+  let aL = 14, aR = -14, legs = 0, tilt = 0, mouth = "smile";
+  if (pose === "point") { aR = -95; mouth = "open"; }
+  else if (pose === "shock") { aL = 150; aR = -150; mouth = "o"; }
+  else if (pose === "sad") { aL = 8; aR = -8; tilt = 12; mouth = "sad"; }
+  else if (pose === "cheer") { aL = 160 + Math.sin(f / 4) * 12; aR = -160 - Math.sin(f / 4) * 12; mouth = "open"; }
+  else if (pose === "wave") { aR = -150 + Math.sin(f / 3) * 25; }
+  else if (pose === "walk") { legs = Math.sin(f / 4) * 28; aL = Math.sin(f / 4) * 25; aR = -Math.sin(f / 4) * 25; }
+  else if (pose === "tremble") { aL = 40; aR = -40; mouth = "o"; }
+  else if (pose === "think") { aR = -120; mouth = "sad"; tilt = -6; }
+  if (talk !== undefined) mouth = talking ? "talk" : pose === "sad" || pose === "think" ? "sad" : "smile";
+  const shake = pose === "tremble" ? Math.sin(f * 2.2) * 5 : 0;
+  const bob = pose === "walk" ? Math.abs(Math.sin(f / 4)) * -10 : 0;
+  const SK = type === "robot" ? "#cfd8dc" : "#f2c9a0", ln = "#111", b = breathe;
+  const arm = (side: number, a: number) => (
+    <g transform={`translate(${side * 76},${-322 + b}) rotate(${a})`}>
+      <rect x={-17} y={-6} width={34} height={140} rx={8} fill={SK} stroke={ln} strokeWidth={5} />
+      <rect x={-17} y={-6} width={34} height={64} rx={8} fill={color} stroke={ln} strokeWidth={5} />
+    </g>
+  );
+  const leg = (side: number) => (
+    <g transform={`translate(${side * 30},-190) rotate(${side * legs * 0.3})`}>
+      <rect x={-22} y={0} width={44} height={190} rx={6} fill="#2b2d42" stroke={ln} strokeWidth={5} />
+    </g>
+  );
+  return (
+    <g transform={`translate(${shake},${bob})`}>
+      {leg(-1)}
+      {leg(1)}
+      <rect x={-62} y={-335 + b} width={124} height={150} rx={10} fill={color} stroke={ln} strokeWidth={6} />
+      {type === "girl" && <rect x={-80} y={-215 + b} width={160} height={58} rx={10} fill={color} stroke={ln} strokeWidth={6} />}
+      {arm(-1, aL)}
+      {arm(1, aR)}
+      <g transform={`rotate(${tilt} 0 -345)`}>
+        <rect x={-64} y={-482 + b} width={128} height={128} rx={14} fill={SK} stroke={ln} strokeWidth={6} />
+        {type === "girl" && <g fill="#3a1f0d" stroke={ln} strokeWidth={5}><rect x={-70} y={-494 + b} width={140} height={44} rx={10} /><rect x={-70} y={-494 + b} width={26} height={118} rx={8} /><rect x={44} y={-494 + b} width={26} height={118} rx={8} /></g>}
+        {type === "boss" && <g fill="#222"><rect x={-84} y={-498 + b} width={168} height={24} rx={8} /><rect x={-52} y={-544 + b} width={104} height={50} rx={8} /></g>}
+        {type === "robot" && <g><rect x={-54} y={-440 + b} width={108} height={36} rx={8} fill="#1d2b53" /><line x1={0} y1={-482 + b} x2={0} y2={-522 + b} stroke={ln} strokeWidth={6} /><circle cx={0} cy={-530 + b} r={9} fill="#ff6b6b" /></g>}
+        {blink ? (
+          <g stroke={ln} strokeWidth={5}><line x1={-36} y1={-424 + b} x2={-16} y2={-424 + b} /><line x1={16} y1={-424 + b} x2={36} y2={-424 + b} /></g>
+        ) : (
+          <g fill={type === "robot" ? "#7df9ff" : "#111"}><rect x={-36} y={-434 + b} width={18} height={20} /><rect x={18} y={-434 + b} width={18} height={20} /></g>
+        )}
+        {mouth === "smile" && <path d={`M-24 ${-390 + b} Q0 ${-366 + b} 24 ${-390 + b}`} stroke={ln} strokeWidth={5} fill="none" />}
+        {mouth === "sad" && <path d={`M-22 ${-372 + b} Q0 ${-394 + b} 22 ${-372 + b}`} stroke={ln} strokeWidth={5} fill="none" />}
+        {mouth === "open" && <rect x={-15} y={-396 + b} width={30} height={14 + Math.abs(Math.sin(f / 3)) * 10} rx={4} fill={ln} />}
+        {mouth === "talk" && <rect x={-14 - (talk as number) * 6} y={-396 + b} width={28 + (talk as number) * 12} height={4 + (talk as number) * 24} rx={4} fill={ln} />}
+        {mouth === "o" && <rect x={-12} y={-394 + b} width={24} height={24} rx={4} fill={ln} />}
+      </g>
+    </g>
+  );
+};
+
+// Gerak untuk karakter SPRITE (gambar PNG transparan): napas, goyang, memantul sesuai pose, membesar-mengecil saat bicara.
+const spriteMotion = (pose: Pose, f: number, talk: number) => {
+  let dx = 0, dy = 0, rot = Math.sin(f / 25) * 1.2;
+  let sx = 1 - 0.012 * talk, sy = 1 + 0.015 * Math.sin(f / 9) + 0.03 * talk;
+  if (pose === "cheer") { dy = -Math.abs(Math.sin(f / 5)) * 34; rot += Math.sin(f / 5) * 3; }
+  else if (pose === "walk") { dy = -Math.abs(Math.sin(f / 4)) * 16; rot += Math.sin(f / 4) * 3; }
+  else if (pose === "tremble") dx = Math.sin(f * 2.2) * 6;
+  else if (pose === "sad") { rot += 5; dy = 10; }
+  else if (pose === "think") rot -= 4;
+  else if (pose === "shock") { sx *= 1.05; sy *= 1.05; dy = -8; }
+  else if (pose === "wave" || pose === "point") rot += Math.sin(f / 8) * 2;
+  return { dx, dy, rot, sx, sy };
+};
+const isImg = (b: string) => /[./]/.test(b);   // bg berupa file gambar (mis. "img/bg1.png") bukan nama latar vektor
 
 const SKY: Record<string, [string, string]> = {
   night: ["#050914", "#16213e"],
@@ -307,7 +380,7 @@ const CAMS = [
   { s: [1.0, 1.12], x: [0, 0], y: [40, -30], close: false },
 ];
 
-const SceneView: React.FC<{ s: Scn; idx: number; first: boolean; len: number; from: number; env?: number[] }> = ({ s, idx, first, len, from, env }) => {
+const SceneView: React.FC<{ s: Scn; idx: number; first: boolean; len: number; from: number; env?: number[]; name: string; style: string }> = ({ s, idx, first, len, from, env, name, style }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   const te = first ? 1 : Easing.out(Easing.cubic)(interpolate(f, [0, XF], [0, 1], clamp));
@@ -326,11 +399,24 @@ const SceneView: React.FC<{ s: Scn; idx: number; first: boolean; len: number; fr
     : kind === 3 ? { clipPath: `circle(${te * 150}% at 50% 62%)` }
     : {};
   const talk = env ? env[Math.min(env.length - 1, from + f)] : undefined;
+  const sp0 = spring({ frame: f - 4, fps, config: { damping: 14 } });
+  const place = (c: Char) => {
+    const sc = c.s ?? 1;
+    const off = c.enter === "left" ? -(c.x + 300) * (1 - sp0) : c.enter === "right" ? (1080 - c.x + 300) * (1 - sp0) : 0;
+    const x = (c.walkTo ? interpolate(f, [0, len], [c.x, c.walkTo], clamp) : c.x) + off;
+    return { x, sc };
+  };
   return (
     <AbsoluteFill style={outer}>
       <AbsoluteFill style={{ transformOrigin: cam.close ? `${hero.x}px 1050px` : "50% 55%", transform: `translate(${lerp(cam.x) + sh}px, ${lerp(cam.y) + sh * 0.6}px) scale(${lerp(cam.s)})` }}>
-        <Bg type={s.bg} f={f} p={p} />
-        {s.chars.length > 0 && (
+        {isImg(s.bg) ? (
+          <AbsoluteFill style={{ overflow: "hidden" }}>
+            <Img src={staticFile(`${name}/${s.bg}`)} style={{ width: "100%", height: "100%", objectFit: "cover", transform: `scale(1.08) translateX(${-p * 30}px)` }} />
+          </AbsoluteFill>
+        ) : (
+          <Bg type={s.bg} f={f} p={p} />
+        )}
+        {s.chars.length > 0 && !isImg(s.bg) && (
           <svg viewBox="0 0 1080 1920" width={1080} height={1920} style={{ position: "absolute" }}>
             <circle cx={hero.x} cy={1130} r={340} fill={s.accent} opacity={0.16} />
           </svg>
@@ -339,18 +425,34 @@ const SceneView: React.FC<{ s: Scn; idx: number; first: boolean; len: number; fr
         {s.card ? <CardView c={s.card} f={f} accent={s.accent} /> : null}
         <svg viewBox="0 0 1080 1920" width={1080} height={1920} style={{ position: "absolute" }}>
           {s.chars.map((c, i) => {
-            const sc = c.s ?? 1;
-            const sp = spring({ frame: f - 4, fps, config: { damping: 14 } });
-            const off = c.enter === "left" ? -(c.x + 300) * (1 - sp) : c.enter === "right" ? (1080 - c.x + 300) * (1 - sp) : 0;
-            const x = (c.walkTo ? interpolate(f, [0, len], [c.x, c.walkTo], clamp) : c.x) + off;
+            const { x, sc } = place(c);
+            const col = c.color ?? "#4cc9f0";
+            const tk = i === 0 ? talk : undefined;
             return (
               <g key={i} transform={`translate(${x},1500) scale(${c.flip ? -sc : sc},${sc})`}>
                 <ellipse cx={0} cy={4} rx={90} ry={14} fill="#000" opacity={0.35} />
-                <Stick pose={c.pose} color={c.color ?? "#4cc9f0"} f={f + i * 7} type={c.type} talk={i === 0 ? talk : undefined} />
+                {c.img ? null : style === "block" || c.type === "block" ? (
+                  <Block pose={c.pose} color={col} f={f + i * 7} type={c.type} talk={tk} />
+                ) : (
+                  <Stick pose={c.pose} color={col} f={f + i * 7} type={style === "robot" ? "robot" : c.type} talk={tk} />
+                )}
               </g>
             );
           })}
         </svg>
+        {s.chars.map((c, i) => {
+          if (!c.img) return null;
+          const { x, sc } = place(c);
+          const t = i === 0 ? talk ?? 0 : 0;
+          const m = spriteMotion(c.pose, f + i * 7, t);
+          const enterDy = (1 - Math.min(1, sp0)) * 80;
+          return (
+            <div key={"sp" + i} style={{ position: "absolute", left: x, top: 1500, height: 760 * sc, display: "grid", transformOrigin: "50% 100%", transform: `translate(-50%, -100%) translate(${m.dx}px, ${m.dy + enterDy}px) rotate(${m.rot}deg) scale(${(c.flip ? -1 : 1) * m.sx}, ${m.sy})` }}>
+              <Img src={staticFile(`${name}/${c.img}`)} style={{ gridArea: "1 / 1", height: "100%", width: "auto" }} />
+              {c.talkImg ? <Img src={staticFile(`${name}/${c.talkImg}`)} style={{ gridArea: "1 / 1", height: "100%", width: "auto", opacity: t > 0.25 ? 1 : 0 }} /> : null}
+            </div>
+          );
+        })}
       </AbsoluteFill>
     </AbsoluteFill>
   );
@@ -404,6 +506,7 @@ export const VectorStory: React.FC<StoryProps> = ({ name, data }) => {
   const { durationInFrames, fps } = useVideoConfig();
   if (!data) return null;
   const { scenes, watermark, cta, words, env } = data;
+  const style = data.style ?? "stick";
   const ctaStart = durationInFrames - Math.round(2.0 * FPS);
   const cp = spring({ frame: frame - ctaStart, fps, config: { damping: 12, stiffness: 160 } });
   return (
@@ -417,7 +520,7 @@ export const VectorStory: React.FC<StoryProps> = ({ name, data }) => {
         const from = Math.max(0, a - pad);
         return (
           <Sequence key={i} from={from} durationInFrames={Math.max(b - a + pad, 1)}>
-            <SceneView s={s} idx={i} first={i === 0} len={Math.max(b - a + pad, 1)} from={from} env={env} />
+            <SceneView s={s} idx={i} first={i === 0} len={Math.max(b - a + pad, 1)} from={from} env={env} name={name} style={style} />
           </Sequence>
         );
       })}
